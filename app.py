@@ -1,57 +1,40 @@
-import os
-import numpy as np
+import streamlit as st
 import tensorflow as tf
-from flask import Flask, request, render_template, redirect, url_for
-from werkzeug.utils import secure_filename
-from tensorflow.keras.preprocessing import image
-
-# Flask App
-app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+import numpy as np
+from PIL import Image
 
 # Constants
 IMG_HEIGHT = 180
 IMG_WIDTH = 180
+CLASS_NAMES = ['crazing', 'inclusion', 'patches', 'pitted_surface', 'rolled-in_scale', 'scratches']
 
-# Load model and class names
-model = tf.keras.models.load_model("steel_defect_clf.keras")
+# Load model
+@st.cache_resource
+def load_model():
+    return tf.keras.models.load_model("steel_defect_clf.keras")
 
-# Adjust this if your training dataset had different class order
-class_names = ['crazing', 'inclusion', 'patches', 'pitted_surface', 'rolled-in_scale', 'scratches']
+model = load_model()
 
-@app.route('/', methods=['GET', 'POST'])
-def upload_file():
-    if request.method == 'POST':
-        # Get uploaded file
-        file = request.files['file']
-        if file and file.filename != '':
-            filename = secure_filename(file.filename)
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(file_path)
+# UI
+st.title("Steel Defect Classifier")
+st.write("Upload an image of steel surface to predict the defect type.")
 
-            # Preprocess image
-            img = tf.keras.utils.load_img(file_path, target_size=(IMG_HEIGHT, IMG_WIDTH))
-            img_array = tf.keras.utils.img_to_array(img)
-            img_array = tf.expand_dims(img_array, 0)
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
 
-            # Predict
-            predictions = model.predict(img_array)
-            score = tf.nn.softmax(predictions[0])
-            predicted_class = class_names[np.argmax(score)]
-            confidence = 100 * np.max(score)
+if uploaded_file is not None:
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="Uploaded Image", use_column_width=True)
 
-            return render_template('result.html',
-                                   filename=filename,
-                                   prediction=predicted_class,
-                                   confidence=f"{confidence:.2f}")
-        else:
-            return "No file uploaded!"
+    # Preprocessing
+    img = image.resize((IMG_WIDTH, IMG_HEIGHT))
+    img_array = tf.keras.utils.img_to_array(img)
+    img_array = tf.expand_dims(img_array, 0)
 
-    return render_template('upload.html')
+    # Predict
+    predictions = model.predict(img_array)
+    score = tf.nn.softmax(predictions[0])
+    predicted_class = CLASS_NAMES[np.argmax(score)]
+    confidence = 100 * np.max(score)
 
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return redirect(url_for('static', filename='uploads/' + filename), code=301)
-
-
+    st.markdown(f"### Predicted: **{predicted_class}**")
+    st.markdown(f"Confidence: **{confidence:.2f}%**")
